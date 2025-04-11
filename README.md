@@ -72,9 +72,9 @@ For more information on inaccuracies, see issue
    regenerate the token.
    - Some users are reporting that it can take a few minutes for the personal
      access token to work. For more, see 
-     [#30](https://github.com/jstrieb/github-stats/issues/30).
+     [#30](https://github.com/sshsrijanr/github-stats/issues/30).
 2. Create a copy of this repository by clicking
-   [here](https://github.com/jstrieb/github-stats/generate). Note: this is
+   [here](https://github.com/sshsrijanr/github-stats/generate). Note: this is
    **not** the same as forking a copy because it copies everything fresh,
    without the huge commit history. 
 3. Go to the "Secrets" page of your copy of the repository. If this is the
@@ -94,12 +94,12 @@ For more information on inaccuracies, see issue
    - To show statistics only for "owned" repositories and not forks with
      contributions, add an environment variable (under the `env` header in the
      [main
-     workflow](https://github.com/jstrieb/github-stats/blob/master/.github/workflows/main.yml))
+     workflow](https://github.com/sshsrijanr/github-stats/blob/master/.github/workflows/main.yml))
      called `EXCLUDE_FORKED_REPOS` with a value of `true`.
    - These other values are added as secrets by default to prevent leaking
      information about private repositories. If you're not worried about that,
      you can change the values directly [in the Actions workflow
-     itself](https://github.com/jstrieb/github-stats/blob/05de1314b870febd44d19ad2f55d5e59d83f5857/.github/workflows/main.yml#L48-L53).
+     itself](https://github.com/sshsrijanr/github-stats/blob/05de1314b870febd44d19ad2f55d5e59d83f5857/.github/workflows/main.yml#L48-L53).
 6. Go to the [Actions
    Page](../../actions?query=workflow%3A"Generate+Stats+Images") and press "Run
    Workflow" on the right side of the screen to generate images for the first
