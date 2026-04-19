@@ -43,26 +43,37 @@ class Queries(object):
         }
         try:
             async with self.semaphore:
-                r_async = await self.session.post(
+                async with self.session.post(
                     "https://api.github.com/graphql",
                     headers=headers,
                     json={"query": generated_query},
-                )
-            result = await r_async.json()
-            if result is not None:
-                return result
-        except:
-            print("aiohttp failed for GraphQL query")
+                ) as r_async:
+                    if r_async.status != 200:
+                        print(f"GraphQL query failed with status {r_async.status}")
+                        try:
+                            error_data = await r_async.json()
+                            print(f"Error details: {error_data}")
+                        except:
+                            pass
+                    result = await r_async.json()
+                    if result is not None:
+                        return result
+        except Exception as e:
+            print(f"aiohttp failed for GraphQL query: {e}")
             # Fall back on non-async requests
-            async with self.semaphore:
+            try:
                 r_requests = requests.post(
                     "https://api.github.com/graphql",
                     headers=headers,
                     json={"query": generated_query},
                 )
+                if r_requests.status_code != 200:
+                    print(f"GraphQL fallback query failed with status {r_requests.status_code}")
                 result = r_requests.json()
                 if result is not None:
                     return result
+            except Exception as e2:
+                print(f"Fallback requests failed for GraphQL query: {e2}")
         return dict()
 
     async def query_rest(self, path: str, params: Optional[Dict] = None) -> Dict:
@@ -83,24 +94,28 @@ class Queries(object):
                 path = path[1:]
             try:
                 async with self.semaphore:
-                    r_async = await self.session.get(
+                    async with self.session.get(
                         f"https://api.github.com/{path}",
                         headers=headers,
                         params=tuple(params.items()),
-                    )
-                if r_async.status == 202:
-                    # print(f"{path} returned 202. Retrying...")
-                    print(f"A path returned 202. Retrying...")
-                    await asyncio.sleep(2)
-                    continue
+                    ) as r_async:
+                        if r_async.status == 202:
+                            # print(f"{path} returned 202. Retrying...")
+                            print(f"A path returned 202. Retrying...")
+                            await asyncio.sleep(2)
+                            continue
+                        
+                        if r_async.status != 200:
+                            if r_async.status not in [404, 403]: # 404/403 might be expected for some traffic queries
+                                print(f"REST query to {path} failed with status {r_async.status}")
 
-                result = await r_async.json()
-                if result is not None:
-                    return result
-            except:
-                print("aiohttp failed for rest query")
+                        result = await r_async.json()
+                        if result is not None:
+                            return result
+            except Exception as e:
+                print(f"aiohttp failed for rest query to {path}: {e}")
                 # Fall back on non-async requests
-                async with self.semaphore:
+                try:
                     r_requests = requests.get(
                         f"https://api.github.com/{path}",
                         headers=headers,
@@ -112,19 +127,24 @@ class Queries(object):
                         continue
                     elif r_requests.status_code == 200:
                         return r_requests.json()
+                    else:
+                        if r_requests.status_code not in [404, 403]:
+                            print(f"REST fallback query to {path} failed with status {r_requests.status_code}")
+                except Exception as e2:
+                    print(f"Fallback requests failed for rest query to {path}: {e2}")
+                    break
         # print(f"There were too many 202s. Data for {path} will be incomplete.")
         print("There were too many 202s. Data for this repository will be incomplete.")
         return dict()
 
-    @staticmethod
     def repos_overview(
-        contrib_cursor: Optional[str] = None, owned_cursor: Optional[str] = None
+        self, contrib_cursor: Optional[str] = None, owned_cursor: Optional[str] = None
     ) -> str:
         """
         :return: GraphQL query with overview of user repositories
         """
         return f"""{{
-  viewer {{
+  user(login: "{self.username}") {{
     login,
     name,
     repositories(
@@ -197,19 +217,18 @@ class Queries(object):
 }}
 """
 
-    @staticmethod
-    def contrib_years() -> str:
+    def contrib_years(self) -> str:
         """
         :return: GraphQL query to get all years the user has been a contributor
         """
-        return """
-query {
-  viewer {
-    contributionsCollection {
+        return f"""
+query {{
+  user(login: "{self.username}") {{
+    contributionsCollection {{
       contributionYears
-    }
-  }
-}
+    }}
+  }}
+}}
 """
 
     @staticmethod
@@ -229,16 +248,15 @@ query {
     }}
 """
 
-    @classmethod
-    def all_contribs(cls, years: List[str]) -> str:
+    def all_contribs(self, years: List[str]) -> str:
         """
         :param years: list of years to get contributions for
         :return: query to retrieve contribution information for all user years
         """
-        by_years = "\n".join(map(cls.contribs_by_year, years))
+        by_years = "\n".join(map(self.contribs_by_year, years))
         return f"""
 query {{
-  viewer {{
+  user(login: "{self.username}") {{
     {by_years}
   }}
 }}
@@ -310,27 +328,27 @@ Languages:
         next_contrib = None
         while True:
             raw_results = await self.queries.query(
-                Queries.repos_overview(
+                self.queries.repos_overview(
                     owned_cursor=next_owned, contrib_cursor=next_contrib
                 )
             )
             raw_results = raw_results if raw_results is not None else {}
 
-            self._name = raw_results.get("data", {}).get("viewer", {}).get("name", None)
+            self._name = raw_results.get("data", {}).get("user", {}).get("name", None)
             if self._name is None:
                 self._name = (
                     raw_results.get("data", {})
-                    .get("viewer", {})
+                    .get("user", {})
                     .get("login", "No Name")
                 )
 
             contrib_repos = (
                 raw_results.get("data", {})
-                .get("viewer", {})
+                .get("user", {})
                 .get("repositoriesContributedTo", {})
             )
             owned_repos = (
-                raw_results.get("data", {}).get("viewer", {}).get("repositories", {})
+                raw_results.get("data", {}).get("user", {}).get("repositories", {})
             )
 
             repos = owned_repos.get("nodes", [])
@@ -456,16 +474,16 @@ Languages:
 
         self._total_contributions = 0
         years = (
-            (await self.queries.query(Queries.contrib_years()))
+            (await self.queries.query(self.queries.contrib_years()))
             .get("data", {})
-            .get("viewer", {})
+            .get("user", {})
             .get("contributionsCollection", {})
             .get("contributionYears", [])
         )
         by_year = (
-            (await self.queries.query(Queries.all_contribs(years)))
+            (await self.queries.query(self.queries.all_contribs(years)))
             .get("data", {})
-            .get("viewer", {})
+            .get("user", {})
             .values()
         )
         for year in by_year:
@@ -530,11 +548,11 @@ async def main() -> None:
     """
     Used mostly for testing; this module is not usually run standalone
     """
-    access_token = os.getenv("ACCESS_TOKEN")
+    access_token = os.getenv("ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
     user = os.getenv("GITHUB_ACTOR")
     if access_token is None or user is None:
         raise RuntimeError(
-            "ACCESS_TOKEN and GITHUB_ACTOR environment variables cannot be None!"
+            "ACCESS_TOKEN (or GITHUB_TOKEN) and GITHUB_ACTOR environment variables cannot be None!"
         )
     async with aiohttp.ClientSession() as session:
         s = Stats(user, access_token, session)
