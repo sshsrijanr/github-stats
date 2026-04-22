@@ -27,7 +27,11 @@ class Queries(object):
         max_connections: int = 10,
     ):
         self.username = username
-        self.access_token = access_token
+        self.access_token = access_token.strip()
+        if self.access_token.startswith("token "):
+            self.access_token = self.access_token[6:].strip()
+        elif self.access_token.startswith("Bearer "):
+            self.access_token = self.access_token[7:].strip()
         self.session = session
         self.semaphore = asyncio.Semaphore(max_connections)
 
@@ -86,7 +90,7 @@ class Queries(object):
 
         for _ in range(60):
             headers = {
-                "Authorization": f"token {self.access_token}",
+                "Authorization": f"Bearer {self.access_token}",
             }
             if params is None:
                 params = dict()
@@ -549,6 +553,13 @@ async def main() -> None:
     Used mostly for testing; this module is not usually run standalone
     """
     access_token = os.getenv("ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if access_token:
+        access_token = access_token.strip()
+        if access_token.startswith("token "):
+            access_token = access_token[6:].strip()
+        elif access_token.startswith("Bearer "):
+            access_token = access_token[7:].strip()
+
     user = os.getenv("GITHUB_ACTOR")
     if access_token is None or user is None:
         raise RuntimeError(
